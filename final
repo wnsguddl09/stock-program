@@ -1,0 +1,874 @@
+import sys
+import threading
+from PyQt5.QtWidgets import *
+import time
+from pandas import DataFrame
+import datetime
+import sys
+from PyQt5.QAxContainer import *
+from PyQt5.QtCore import *
+import pandas as pd
+import sqlite3
+import csv 
+import seaborn as sns
+import pandas as pd
+from pandas import Series, DataFrame
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.pyplot import figure
+from mlxtend.frequent_patterns import association_rules
+from sklearn.feature_extraction.text import TfidfVectorizer
+from matplotlib import font_manager, rc 
+from sklearn.metrics import adjusted_rand_score
+import math
+from math import sqrt
+from mlxtend.preprocessing import TransactionEncoder
+from mlxtend.frequent_patterns import apriori
+import csv
+from sklearn.cluster import *
+from PIL import Image, ImageTk
+MARKET_KOSPI   = 0
+MARKET_KOSDAQ  = 10
+TR_REQ_TIME_INTERVAL = 0.2
+MY_ACCOUNT = {}
+global MY_STOCK
+MY_STOCK= {}
+ARRIVE_CODE = []
+
+import random
+import sys
+from PyQt5.QtWidgets import *
+from PyQt5.QAxContainer import *
+from PyQt5.QtCore import *
+import time
+import pandas as pd
+import sqlite3
+
+TR_REQ_TIME_INTERVAL = 0.2
+
+class Kiwoom(QAxWidget):
+    def __init__(self):
+        super().__init__()
+        self._create_kiwoom_instance()
+        self._set_signal_slots()
+
+    def _create_kiwoom_instance(self):
+        self.setControl("KHOPENAPI.KHOpenAPICtrl.1")
+
+    def _set_signal_slots(self):
+        self.OnEventConnect.connect(self._event_connect)
+        self.OnReceiveTrData.connect(self._receive_tr_data)
+        self.OnReceiveChejanData.connect(self._receive_chejan_data)
+
+    def comm_connect(self):
+        self.dynamicCall("CommConnect()")
+        self.login_event_loop = QEventLoop()
+        self.login_event_loop.exec_()
+
+    def _event_connect(self, err_code):
+        if err_code == 0:
+            print("connected")
+        else:
+            print("disconnected")
+
+        self.login_event_loop.exit()
+
+    def get_code_list_by_market(self, market):
+        code_list = self.dynamicCall("GetCodeListByMarket(QString)", market)
+        code_list = code_list.split(';')
+        return code_list[:-1]
+
+    def get_master_code_name(self, code):
+        code_name = self.dynamicCall("GetMasterCodeName(QString)", code)
+        return code_name
+
+    def get_connect_state(self):
+        ret = self.dynamicCall("GetConnectState()")
+        return ret
+
+    def set_input_value(self, id, value):
+        self.dynamicCall("SetInputValue(QString, QString)", id, value)
+
+    def comm_rq_data(self, rqname, trcode, next, screen_no):
+        self.dynamicCall("CommRqData(QString, QString, int, QString)", rqname, trcode, next, screen_no)
+    
+
+    def _comm_get_data(self, code, real_type, field_name, index, item_name):
+        ret = self.dynamicCall("CommGetData(QString, QString, QString, int, QString)", code,
+                               real_type, field_name, index, item_name)
+        return ret.strip()
+
+    def _get_repeat_cnt(self, trcode, rqname):
+        ret = self.dynamicCall("GetRepeatCnt(QString, QString)", trcode, rqname)
+        return ret
+
+    def _receive_tr_data(self, screen_no, rqname, trcode, record_name, next, unused1, unused2, unused3, unused4):
+        if next == '2':
+            self.remained_data = True
+        else:
+            self.remained_data = False
+
+        if rqname == "opt10081_req":
+            self._opt10081(rqname, trcode)
+        
+        elif rqname == "opw00001_req":
+            self._opw00001(rqname, trcode)
+      
+        elif rqname == "opw00018_req":
+            l = self._opw00018(rqname, trcode)
+            return l
+           
+        
+        
+
+    def _opt10081(self, rqname, trcode):
+        data_cnt = self._get_repeat_cnt(trcode, rqname)
+
+        for i in range(data_cnt):
+            date = self._comm_get_data(trcode, "", rqname, i, "일자")
+            open = self._comm_get_data(trcode, "", rqname, i, "시가")
+            high = self._comm_get_data(trcode, "", rqname, i, "고가")
+            low = self._comm_get_data(trcode, "", rqname, i, "저가")
+            close = self._comm_get_data(trcode, "", rqname, i, "현재가")
+            volume = self._comm_get_data(trcode, "", rqname, i, "거래량")
+
+            self.ohlcv['date'].append(date)
+            self.ohlcv['open'].append(int(open))
+            self.ohlcv['high'].append(int(high))
+            self.ohlcv['low'].append(int(low))
+            self.ohlcv['close'].append(int(close))
+            self.ohlcv['volume'].append(int(volume))
+        
+    def send_order(self, rqname, screen_no, acc_no, order_type, code, quantity, price, hoga, order_no):
+        self.dynamicCall("SendOrder(QString, QString, QString, int, QString, int, int, QString, QString)",
+                         [rqname, screen_no, acc_no, order_type, code, quantity, price, hoga, order_no])
+    def get_chejan_data(self, fid):
+        ret = self.dynamicCall("GetChejanData(int)", fid)
+        return ret
+    
+    def _receive_chejan_data(self, gubun, item_cnt, fid_list):
+        print(gubun)
+        print(self.get_chejan_data(9203))
+        print(self.get_chejan_data(302))
+        print(self.get_chejan_data(900))
+        print(self.get_chejan_data(901))
+    
+    def get_login_info(self, tag):
+        ret = self.dynamicCall("GetLoginInfo(QString)", tag)
+        return ret
+    
+    def _opw00001(self, rqname, trcode):
+        d2_deposit = self._comm_get_data(trcode, "", rqname, 0, "d+2추정예수금")
+        self.d2_deposit = Kiwoom.change_format(d2_deposit)
+        
+    def change_format2(data):
+        strip_data = data.lstrip('-0')
+
+        if strip_data == '':
+            strip_data = '0'
+
+        if strip_data.startswith('.'):
+            strip_data = '0' + strip_data
+
+        if data.startswith('-'):
+            strip_data = '-' + strip_data
+
+        return strip_data
+        
+    def change_format(data):
+        strip_data = data.lstrip('-0')
+        
+        if strip_data == '':
+            strip_data = '0'
+
+        try:
+            format_data = format(int(strip_data), ',d')
+        except:
+            format_data = format(float(strip_data))
+
+        if data.startswith('-'):
+            format_data = '-' + format_data
+
+        return format_data
+    
+    def _opw00018(self, rqname, trcode):
+        
+
+        
+        total_purchase_price = self._comm_get_data(trcode, "", rqname, 0, "총매입금액")
+        total_eval_price = self._comm_get_data(trcode, "", rqname, 0, "총평가금액")
+        total_eval_profit_loss_price = self._comm_get_data(trcode, "", rqname, 0, "총평가손익금액")
+        total_earning_rate = self._comm_get_data(trcode, "", rqname, 0, "총수익률(%)")
+        estimated_deposit = self._comm_get_data(trcode, "", rqname, 0, "추정예탁자산")
+        
+        
+        MY_ACCOUNT["총 매입금액"] = Kiwoom.change_format(total_purchase_price)
+        MY_ACCOUNT["총 평가금액"] = Kiwoom.change_format(total_eval_price)
+        MY_ACCOUNT["수익 금액"] = Kiwoom.change_format(total_eval_profit_loss_price)
+        MY_ACCOUNT["수익률"] = Kiwoom.change_format(Kiwoom.change_format(total_earning_rate))
+        MY_ACCOUNT["총 자산"] = Kiwoom.change_format(Kiwoom.change_format(estimated_deposit).replace(",",""))
+        
+        rows = self._get_repeat_cnt(trcode, rqname)
+
+        for i in range(rows):
+            name = self._comm_get_data(trcode, "", rqname, i, "종목명")
+            quantity = self._comm_get_data(trcode, "", rqname, i, "보유수량")
+            purchase_price = self._comm_get_data(trcode, "", rqname, i, "매입가")
+            current_price = self._comm_get_data(trcode, "", rqname, i, "현재가")
+            eval_profit_loss_price = self._comm_get_data(trcode, "", rqname, i, "평가손익")
+            earning_rate = self._comm_get_data(trcode, "", rqname, i, "수익률(%)")
+
+            quantity = Kiwoom.change_format(quantity)
+            purchase_price = Kiwoom.change_format(purchase_price)
+            current_price = Kiwoom.change_format(current_price)
+            eval_profit_loss_price = Kiwoom.change_format(eval_profit_loss_price)
+            earning_rate = Kiwoom.change_format2(earning_rate)
+            
+            if '-' not in earning_rate :
+                earning_rate = "+" + earning_rate
+            
+            MY_STOCK[name] = [quantity, purchase_price, current_price, eval_profit_loss_price, earning_rate]
+    
+class Stock():
+    
+    def __init__(self):
+        self.kiwoom = Kiwoom()
+        self.kiwoom.comm_connect()
+        self.get_code_list()
+        
+        
+    def get_my_account(self):
+        self.account_number = self.kiwoom.get_login_info("ACCNO")
+        self.account_number = self.account_number.split(';')[0]
+        self.kiwoom.set_input_value("계좌번호", self.account_number)
+        
+        self.kiwoom.comm_rq_data("opw00018_req", "opw00018", 0, "2000")
+    
+    def send_order(self,order_type,code,num):
+        
+        order_type_lookup = {'신규매수': 1, '신규매도': 2}
+
+        account = self.account_number
+        order_type = order_type_lookup[order_type]
+        code = code
+        hoga_gb = "03" #시장가를 의미함
+        num = num
+        price = 0 #시장가는 가격을 0으로 인자를 넣어줘야 한다.
+        
+        
+
+        self.kiwoom.send_order("send_order_req", "0101", account, order_type, code, num, price, hoga_gb , "")
+    
+    def get_code_list(self):
+        self.kospi_codes = self.kiwoom.get_code_list_by_market(MARKET_KOSPI)
+        self.kosdaq_codes = self.kiwoom.get_code_list_by_market(MARKET_KOSDAQ)
+
+    def get_ohlcv(self, code, start):
+        self.kiwoom.ohlcv = {'date': [], 'open': [], 'high': [], 'low': [], 'close': [], 'volume': []}
+
+        self.kiwoom.set_input_value("종목코드", code)
+        
+        self.kiwoom.set_input_value("기준일자", start)
+        self.kiwoom.set_input_value("수정주가구분", 1)
+        
+        self.kiwoom.comm_rq_data("opt10081_req", "opt10081", 0, "0101")
+        time.sleep(0.1)
+        
+ 
+        
+
+        df = DataFrame(self.kiwoom.ohlcv, columns=['open', 'high', 'low', 'close', 'volume'],
+                       index=self.kiwoom.ohlcv['date'])
+        return df
+
+    def check_speedy_rising_volume(self, code):
+        
+        today = datetime.datetime.today().strftime("%Y%m%d")
+        
+        df = self.get_ohlcv(code, today)
+        
+        
+        volumes = df['volume']
+
+        if len(volumes) < 11:
+            return False
+
+        sum_vol10 = 0
+        today_vol = 0
+
+        for i, vol in enumerate(volumes):
+            if i == 0:
+                today_vol = vol
+            elif 1 <= i <= 10:
+                sum_vol10 += vol
+            else:
+                break
+
+        avg_vol10 = sum_vol10 / 10
+        
+        if today_vol > avg_vol10 * 2:
+            return True
+
+    def update_buy_list(self, buy_list):
+        f = open("buy_list.txt", "wt")
+        for code in buy_list:
+            f.writelines("매수;", code, ";시장가;10;0;매수전")
+        f.close()
+
+    def run(self):
+        
+
+        for i, code in enumerate(self.kospi_codes[800:]):
+            
+            if self.check_speedy_rising_volume(code):
+                
+                if code not in ARRIVE_CODE:
+                    ARRIVE_CODE.append(code)
+                    break
+               
+                
+    
+        
+        
+#피어슨 상관계수
+def pearson_cor(data, name1, name2):
+    sumX=0 
+    sumY=0 
+    sumPowX=0 
+    sumPowY=0 
+    sumXY=0 
+    count=0 
+
+    
+    for i in data[name1]: 
+        if i in data[name2]: 
+            sumX+=data[name1][i]
+            sumY+=data[name2][i]
+            sumPowX+=pow(data[name1][i],2)
+            sumPowY+=pow(data[name2][i],2)
+            sumXY+=data[name1][i]*data[name2][i]
+            count+=1
+    try: 
+        return ( sumXY- ((sumX*sumY)/count) )/ sqrt( (sumPowX - (pow(sumX,2) / count)) * (sumPowY - (pow(sumY,2)/count)))
+    except : return 0
+
+def ratio_sim(data, name1, name2):
+    
+
+    k = 0
+    p = 0
+    for oper in data[name1]:
+        if oper in data[name2]: 
+            k = data[name1][oper]
+            p = data[name2][oper]
+    
+    try:
+        if p > k :
+            t = k/p
+        else :
+            t = p/k
+    except:
+        return 1
+    
+
+    
+    
+ 
+    return  t
+
+def cosine_sim(data, name1, name2):
+    sum_name1 = 0
+    sum_name2 = 0
+    sum_name1_name2 = 0
+    count = 0
+    
+    for oper in data[name1]:
+        if oper in data[name2]: 
+            k = data[name1][oper]
+            p = data[name2][oper]
+            sum_name1 += pow(data[name1][oper], 2)
+            sum_name2 += pow(data[name2][oper], 2)
+            sum_name1_name2 += data[name1][oper]*data[name2][oper]
+            
+    if (math.sqrt(sum_name1)*math.sqrt(sum_name2)) == 0 :
+        return 0
+    
+
+    
+
+    
+ 
+    return (sum_name1_name2 / (math.sqrt(sum_name1)*math.sqrt(sum_name2)))
+
+def top_match(data, name, sim_function=pearson_cor):
+    result=[]
+    for i in data: 
+        if name!=i: 
+
+            result.append((sim_function(data,name,i),i)) 
+
+    result.sort() 
+    result.reverse()
+    return result
+
+def rec (data,person,sim_function=cosine_sim):
+    
+    
+    simSum=0 
+    score=0
+    result=[] 
+    score_dic={} # 유사도 총합을 위한 dic
+    sim_dic={} # 평점 총합을 위한 dic
+    
+    
+    for sim,name in top_match(data, person): 
+        
+        
+        for oper in data[name]: 
+
+            if oper not in data[person]: #해당 날짜에 없는 기업들
+                score+=sim*data[name][oper] 
+                score_dic.setdefault(oper,0) # 기본값 설정
+                score_dic[oper]+=score # 합계 구함
+ 
+                
+                sim_dic.setdefault(oper,0) 
+                sim_dic[oper]+=sim
+ 
+            score=0  
+    
+    for key in score_dic: 
+        
+            
+            
+        score_dic[key]=score_dic[key]/sim_dic[key] # 평점 총합/ 유사도 총합
+
+        
+        result.append((round(score_dic[key],2),key)) 
+    result.sort()
+    result.reverse() 
+    return result
+def get_stock_by_apriori (stock_code) :
+    
+    
+    
+    f = open('29데이터 - 복사본.csv')
+    data = csv.reader(f)
+    data = list(data)
+    oper_list = []
+    oper_data = []
+
+    for i in data:
+        for j in i:
+            if j != '':
+                oper_list.append(j.replace("\'",""))
+                oper_data.append([])
+        break
+    
+
+    
+    for row in data[1:]:
+
+        for i in range(len(row)-1):
+            oper_data[i].append(float(row[i+1]))
+
+    oper_dict = {}
+    for i in range(len(oper_list)):
+        oper_dict[oper_list[i]] = oper_data[i]
+
+
+    oper_df = DataFrame(oper_dict)
+
+
+    apri_list = []
+    for i,row in enumerate(data[1:]):
+        apri_list.append([])
+        for j,row2 in enumerate(row[1:]):
+            if float(row2) >= 0.05:
+
+                apri_list[i].append(oper_list[j])
+
+    
+    while True:
+        try:
+            apri_list.remove([])
+        except:
+            break
+    
+
+    
+    te = TransactionEncoder()
+    te_ary = te.fit(apri_list).transform(apri_list)
+    df = pd.DataFrame(te_ary, columns=te.columns_)
+    
+    # support 0.02 이상 리스트 출력
+    frequent_itemsets = apriori(df, min_support=0.001, use_colnames=True, max_len = 2,low_memory = True)
+    
+    # confidence 0.3 이상 뽑아내기
+    apri_result = association_rules(frequent_itemsets, metric="confidence", min_threshold=0.1)
+    
+    
+    
+    #lift로 정렬
+    k  = apri_result.sort_values(by=['confidence'], axis=0, ascending=False)
+
+    k["antecedent_len"] = k["antecedents"].apply(lambda x: len(x))
+    k["consequents_len"] = k["consequents"].apply(lambda x: len(x))
+    
+    k = k[k.antecedent_len == 1]
+    k = k[k.consequents_len == 1]
+    
+    k = k[k.lift > 1.5]
+    
+    k = k[k.antecedents == {stock_code}]
+    
+    k = k["consequents"].to_list()
+    
+    k = [list(x) for x in k]
+    
+    k3 = k
+    
+    
+    
+    
+    #클러스터 
+    string_list = []
+    # 문서로 바꿔주기
+    
+    for l in apri_list:
+        tmp = ""
+        for j in l:
+            tmp = tmp + " " + j
+        string_list.append(tmp.strip())
+        
+    vectorizer = TfidfVectorizer(stop_words='english')
+    X = vectorizer.fit_transform(string_list)
+    
+    K = 5
+    model = KMeans(n_clusters=K, init='k-means++', max_iter=10000, n_init=1)
+    model.fit(X)
+    
+    order_centroids = model.cluster_centers_.argsort()[:, ::-1]
+    terms = vectorizer.get_feature_names()
+    
+    
+    
+    for i in range(K):
+        
+        k2 = []
+        
+        for ind in order_centroids:
+            
+            for i in ind :
+                k2.append(terms[i])
+                if terms[i] == stock_code:
+                    break
+    
+    
+    
+    
+    d2 = data[1:]
+
+    score = []
+    for i in d2:
+
+
+        l2 = []
+        for k, j in enumerate(i[1:]):
+
+
+            l2.append(float(j))
+
+        score.append(l2)
+        
+    score_array = np.array(score)
+    
+    score_scale = (score_array - score_array.min(axis=0)) / (score_array.max(axis=0) - score_array.min(axis=0))
+
+    score_scale = score_scale * 5
+    
+    
+    d2 = data[1:]
+    c = {}
+    l = []
+    score = []
+    for o, i in enumerate(d2):
+
+        tmp = {}
+        l2 = []
+        for k, j in enumerate(i[1:]):
+
+
+            if score_scale[o][k] > -100:
+                tmp[oper_list[k]] = score_scale[o][k]
+
+        c[i[0]] = tmp
+
+    c['2020-05-14'] = {stock_code : 1 }
+    
+    k4 = []
+    for i in rec(c, '2020-05-14') :
+        k4.append(i[1])
+    
+    random.shuffle(k4)
+    
+    
+    return k3 ,k2, k4[0:10]
+
+    
+#api 실행
+app = QApplication(sys.argv)
+stock = Stock()
+
+#갱신 
+def renewal_my_stock():
+    stock.get_my_account()
+
+import tkinter.font
+from tkinter import*
+
+class Gui() :
+    
+    def __init__(self):
+        self.stock = Stock()
+        
+        self.window = tkinter.Tk()
+        self.window.title("데이터마이닝을 이용한 주식 추천 프로그램")
+        self.window.geometry("750x470")
+        self.window.resizable(False, False)
+        self.datamining_al()
+        self.show_my_stock_list()
+        self.show_btn_sell()
+        self.show_my_info()
+        
+        self.btn_renewal()
+        t = threading.Thread(target=self.btn_thread)
+        t.start()
+        arrow = PhotoImage(file = "image/arrow.png");
+        arrow_label = Label(self.window,image = arrow);
+        arrow_label.place(x = 110, y = 70, width = 90, height = 60)
+        
+        self.window.mainloop() 
+    
+    
+    def btn_renewal(self) :
+        
+        self.button = tkinter.Button(self.window, overrelief="solid", repeatdelay=1000, \
+                                 repeatinterval=100, text = "renewal",command = self.renewal_listbox)
+        self.button.place(x = 560, y = 390, width = 60, height = 20)
+    
+    def btn_thread(self) :
+        
+        while True:
+         
+            self.button.invoke()
+            time.sleep(1)
+
+    def datamining_al(self) :
+        
+        
+        label1=tkinter.Label(self.window, bd = 1,relief = 'solid')
+        label1.place(x = 5, y = 10,width = 740, height = 260)
+        label2=tkinter.Label(self.window,text = "분석 알고리즘")
+        label2.place(x = 25, y = 2)
+        scrollbar1=tkinter.Scrollbar(self.window,relief='flat',bd = 2)
+        scrollbar1.place(x = 98, y = 50, width = 20, height = 100)
+        self.listbox_arrive=tkinter.Listbox(self.window, yscrollcommand = scrollbar1.set,relief='solid',\
+                                 bd = 1,selectmode='browse')
+        self.listbox_arrive.place(x = 20, y = 50, width = 80, height = 100)
+        label_name1=tkinter.Label(self.window,text = "급등주")
+        label_name1.place(x = 40, y = 28)
+        button1 = tkinter.Button(self.window, overrelief="solid", repeatdelay=1000, \
+                                 repeatinterval=100, text = "search",command = self.search_arrive)
+        button1.place(x = 30, y = 155, width = 60, height = 20)
+        
+        
+        
+        
+        
+        self.listbox_apr=tkinter.Listbox(self.window ,relief='solid',\
+                                 bd = 1,selectmode='browse')
+        self.listbox_apr.place(x = 200, y = 50, width = 80, height = 100)
+        label_name2=tkinter.Label(self.window,text = "apriori")
+        label_name2.place(x = 220, y = 28)
+        button2 = tkinter.Button(self.window, overrelief = 'solid' ,repeatdelay = 1000, \
+                                repeatinterval = 100, text ="분석하기",command = self.btn_analyze )
+        button2.place(x = 125, y = 140,width =60 , height = 20)
+        
+        
+        
+        self.listbox_filter=tkinter.Listbox(self.window ,relief='solid',\
+                                 bd = 1,selectmode='browse')
+        self.listbox_filter.place(x = 290, y = 50, width = 80, height = 100)
+        label_name2=tkinter.Label(self.window,text = "협업필터링")
+        label_name2.place(x = 297, y = 28)
+        
+        self.listbox_cluster=tkinter.Listbox(self.window ,relief='solid',\
+                                 bd = 1,selectmode='browse')
+        self.listbox_cluster.place(x = 380, y = 50, width = 80, height = 100)
+        label_name3=tkinter.Label(self.window,text = "클러스터링")
+        label_name3.place(x = 387, y = 28)
+        
+        self.listbox_senti=tkinter.Listbox(self.window ,relief='solid',\
+                                 bd = 1,selectmode='browse')
+        self.listbox_senti.place(x = 470, y = 50, width = 80, height = 100)
+        label_name4=tkinter.Label(self.window,text = "감성분석")
+        label_name4.place(x = 482, y = 28)
+        
+        self.listbox_naive=tkinter.Listbox(self.window ,relief='solid',\
+                                 bd = 1,selectmode='browse')
+        self.listbox_naive.place(x = 560, y = 50, width = 80, height = 100)
+        label_name5=tkinter.Label(self.window,text = "나이브베이지안 분류기")
+        label_name5.place(x = 547, y = 28)
+        
+        
+   
+        
+    def search_arrive(self):
+        
+        self.listbox_arrive.delete(0,'end')
+        self.stock.run()
+   
+        
+        for i ,code in enumerate(ARRIVE_CODE):
+            
+            self.listbox_arrive.insert(i,code)
+            
+    def btn_analyze(self) :
+        self.listbox_apr.delete(0,'end')
+        self.listbox_cluster.delete(0,'end')
+        self.listbox_filter.delete(0,'end')
+        self.a, b,c = get_stock_by_apriori("117690")
+        for i, code in enumerate(self.a):
+            self.listbox_apr.insert(i,code)
+        for i, code in enumerate(b):
+            self.listbox_cluster.insert(i,code)
+        
+        for i, code in enumerate(c):
+            self.listbox_filter.insert(i,code)
+    def show_my_stock_list(self):
+        
+        label1=tkinter.Label(self.window, bd = 1,relief = 'solid')
+        label1.place(x = 5, y = 200,width = 740, height = 260)
+        
+       
+        
+        label3=tkinter.Label(self.window,text = "내 주식 현황")
+        label3.place(x = 25, y = 192)
+        
+        label4=tkinter.Label(self.window,text = "주식명")
+        label4.place(x = 55, y = 230)
+        label5=tkinter.Label(self.window,text = "수량")
+        label5.place(x = 145, y = 230)
+        label6=tkinter.Label(self.window,text = "구입가")
+        label6.place(x = 220, y = 230)
+        label7=tkinter.Label(self.window,text = "현재가")
+        label7.place(x = 310, y = 230)
+        label8=tkinter.Label(self.window,text = "수익")
+        label8.place(x = 410, y = 230)
+        label9=tkinter.Label(self.window,text = "수익률")
+        label9.place(x = 485, y = 230)
+        
+        scrollbar=tkinter.Scrollbar(self.window,relief='flat',bd = 2)
+        scrollbar.place(x = 533, y = 250, width = 20, height = 160)
+        self.listbox1=tkinter.Listbox(self.window, yscrollcommand = scrollbar.set,relief='solid',bd = 1,selectmode='browse')
+        self.listbox1.place(x = 20, y = 250, width = 120, height = 160)
+        self.listbox2=tkinter.Listbox(self.window, yscrollcommand = scrollbar.set,relief='solid',bd = 1,selectmode='browse')
+        self.listbox2.place(x = 135, y = 250, width = 60, height = 160)
+        self.listbox3=tkinter.Listbox(self.window, yscrollcommand = scrollbar.set,relief='solid',bd = 1,selectmode='browse')
+        self.listbox3.place(x = 190, y = 250, width = 100, height = 160)
+        self.listbox4=tkinter.Listbox(self.window, yscrollcommand = scrollbar.set,relief='solid',bd = 1,selectmode='browse')
+        self.listbox4.place(x = 285, y = 250, width = 100, height = 160)
+        self.listbox5=tkinter.Listbox(self.window, yscrollcommand = scrollbar.set,relief='solid',bd = 1,selectmode='browse')
+        self.listbox5.place(x = 380, y = 250, width = 100, height = 160)
+        self.listbox6=tkinter.Listbox(self.window, yscrollcommand = scrollbar.set,relief='solid',bd = 1,selectmode='browse')
+        self.listbox6.place(x = 475, y = 250, width = 60, height = 160)
+     
+        scrollbar["command"]=self.listbox1.yview
+        
+    def renewal_listbox(self):
+        
+        i = 0
+
+        self.listbox1.delete(0,'end')
+        self.listbox2.delete(0,'end')
+        self.listbox3.delete(0,'end')
+        self.listbox4.delete(0,'end')
+        self.listbox5.delete(0,'end')
+        self.listbox6.delete(0,'end')
+
+        for key, value in MY_STOCK.items():
+
+            self.listbox1.insert(i,  " " + key)
+            self.listbox2.insert(i, " " + value[0])
+            self.listbox3.insert(i, " " + value[1])
+            self.listbox4.insert(i, " " + value[2])
+            self.listbox5.insert(i, " " + value[3])
+            self.listbox6.insert(i, " " + value[4])
+            i = i + 1 
+        
+        self.label1['text'] = "총 매입금액 : " + MY_ACCOUNT["총 매입금액"] + "원"
+        self.label2['text'] = "총 평가금액 : " +MY_ACCOUNT["총 평가금액"]+ "원"
+        self.label3['text'] = "수익금액 : " +MY_ACCOUNT["수익 금액"]+ "원"
+        self.label4['text'] = "수익률 : " +MY_ACCOUNT["수익률"]+ "%"
+        self.label5['text'] = "자산 : " +MY_ACCOUNT["총 자산"]+ "원"
+        
+        
+    
+        self.stock.get_my_account()
+
+        
+    def show_btn_sell(self) :
+        
+        button1 = tkinter.Button(self.window, overrelief="solid", repeatdelay=1000, repeatinterval=100, text = "매수하기",command = self.buy_stock)
+        button1.place(x = 20, y = 420, width = 100, height = 30)
+        
+        button2 = tkinter.Button(self.window, overrelief="solid", repeatdelay=1000, repeatinterval=100, text = "매도하기")
+        button2.place(x = 130, y = 420, width = 100, height = 30)
+        
+    def show_my_info(self) : 
+        
+        label=tkinter.Label(self.window, text="계좌번호 : 121535187132")
+        label.place(x = 570, y = 250)
+        self.label1=tkinter.Label(self.window, text="총 매입금액 : " + MY_ACCOUNT["총 매입금액"]+ "원")
+        self.label1.place(x = 570, y = 270)
+        self.label2=tkinter.Label(self.window, text="총 평가금액 : " + MY_ACCOUNT["총 평가금액"]+ "원")
+        self.label2.place(x = 570, y = 290)
+        self.label3=tkinter.Label(self.window, text="수익금액 : " + MY_ACCOUNT["수익 금액"]+ "원")
+        self.label3.place(x = 570, y = 310)
+        self.label4=tkinter.Label(self.window, text="수익률 : " + MY_ACCOUNT["수익률"]+ "%")
+        self.label4.place(x = 570, y = 330)
+        self.label5=tkinter.Label(self.window, text="자산 : " + MY_ACCOUNT["총 자산"]+ "원")
+        self.label5.place(x = 570, y = 350)
+        
+    def buy_stock(self) : 
+        
+        sub2 = tkinter.Toplevel(self.window)
+        sub2.geometry("200x100+600+200")
+        sub2.title("매수")
+        sub2.resizable(False, False)
+        
+        scrollbar=tkinter.Scrollbar(sub2,relief='solid',bd = 4)
+        scrollbar.place(x = 80, y = 10, width = 20, height = 80)
+        self.listbox_stock1=tkinter.Listbox(sub2, yscrollcommand = scrollbar.set,relief='solid',bd = 1)
+        
+
+        
+        for i in range(len(self.a)):
+            self.listbox_stock1.insert(i, self.a[i])
+            
+        self.listbox_stock1.place(x = 10, y = 10, width = 70, height = 80)
+        scrollbar["command"]=self.listbox_stock1.yview
+        num = tkinter.Entry(sub2, bd = 1 , relief = 'solid')
+        num.place(x= 155,y= 10, width = 40, height = 20)
+        label1=tkinter.Label(sub2, text="수량: ")
+        label1.place(x = 110, y = 10)
+        
+        button1 = tkinter.Button(sub2, overrelief="solid", repeatdelay=1000, repeatinterval=100, text = "매수하기",command = self.command_buy)
+        button1.place(x = 110, y = 60, width = 80, height = 30)
+        
+    def command_buy(self) :
+        self.stock.send_order("신규매수","204450",10)
+        
+        
+Gui()
